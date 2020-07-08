@@ -34,8 +34,6 @@ var rootCmd = &cobra.Command{
   Short: "redis数据清理工具",
   Long: `福禄网络Redis实例数据清理工具，可支持无阻塞对 BigKey 进行清理，具体设置见执行参数。`,
   Args: cobra.OnlyValidArgs,
-  // Uncomment the following line if your bare application
-  // has an action associated with it:
   Run: func(cmd *cobra.Command, args []string) {
   	utils.InitRedisPool(ConnectionString, Db, Auth)
     if err := utils.RemoveRedisKeys(Pattern); err != nil {
