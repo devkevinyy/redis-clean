@@ -14,8 +14,6 @@ func main() {
 	startTime := time.Now()
 	db8Count := 0
 	db50Count := 0
-	//csvPath := "/Users/yangchujie/GoProjects/src/github.com/chujieyang/redis-clean/csv/data.csv"
-
 	csvDirPath := "/home/fuluops/csv/"
 	rd, err := ioutil.ReadDir(csvDirPath)
 	if err != nil {
