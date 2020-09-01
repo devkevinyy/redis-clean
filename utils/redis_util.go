@@ -2,86 +2,247 @@ package utils
 
 import (
 	"fmt"
-	"github.com/chujieyang/redis-clean/conf"
-	"github.com/gomodule/redigo/redis"
 	"time"
+
+	"github.com/gomodule/redigo/redis"
+	log "github.com/sirupsen/logrus"
 )
 
-var redisPool8 *redis.Pool
-var redisPool50 *redis.Pool
-var db8Client redis.Conn
-var db50Client redis.Conn
+var redisPool *redis.Pool
+var redisClient redis.Conn
 
-func init() {
-	initRedisPool()
+type IterDelRedisKeys interface {
+	del() (err error)
 }
 
-func initRedisPool() {
-	redisPool8 = &redis.Pool{
-		MaxIdle:     256,
-		MaxActive:   3,  // 线程池大小
-		IdleTimeout: time.Duration(120),
-		Wait: true,
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial(
-				"tcp",
-				conf.RedisHost,
-				redis.DialReadTimeout(time.Duration(1000)*time.Millisecond),
-				redis.DialWriteTimeout(time.Duration(1000)*time.Millisecond),
-				redis.DialConnectTimeout(time.Duration(1000)*time.Millisecond),
-				redis.DialDatabase(8),
-				redis.DialPassword(conf.RedisAuth),
-			)
-		},
-	}
-	redisPool50 = &redis.Pool{
-		MaxIdle:     256,
-		MaxActive:   3,  // 线程池大小
-		IdleTimeout: time.Duration(120),
-		Wait: true,
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial(
-				"tcp",
-				conf.RedisHost,
-				redis.DialReadTimeout(time.Duration(1000)*time.Millisecond),
-				redis.DialWriteTimeout(time.Duration(1000)*time.Millisecond),
-				redis.DialConnectTimeout(time.Duration(1000)*time.Millisecond),
-				redis.DialDatabase(50),
-				redis.DialPassword(conf.RedisAuth),
-			)
-		},
-	}
-	db8Client = redisPool8.Get()
-	db50Client = redisPool50.Get()
+type StringKey struct {
+	keyName string
 }
 
-func redisCmdExec(db int, cmd string, args ...interface{}) (interface{}, error) {
-	//con := redisPool8.Get()
-	//if db == 50 {
-	//	con = redisPool50.Get()
-	//}
-	//if err := con.Err(); err != nil {
-	//	return nil, err
-	//}
-	//defer func() {
-	//	if err := con.Close(); err != nil {
-	//		fmt.Println(err)
-	//	}
-	//}()
-	//return con.Do(cmd, args...)
-	if db == 8 {
-		return db8Client.Do(cmd, args...)
-	} else {
-		return db50Client.Do(cmd, args...)
-	}
+func (k StringKey) del() (err error) {
+	log.Infof("Begin to delete [%s] [String]. \n", k.keyName)
+	_, err = redisClient.Do("del", k.keyName)
+	return
 }
 
-func RemoveRedisKeys(db int, keys []interface{}, count *int) (err error) {
-	_, err = redisCmdExec(db, "del", keys...)
+type HashKey struct {
+	keyName string
+}
+
+func (k HashKey) del() (err error) {
+	log.Infof("Begin to delete [%s] [Hash] use HSCAN. \n", k.keyName)
+	iter := 0
+	for {
+		arr, err1 := redis.Values(redisClient.Do("HSCAN", k.keyName, iter))
+		if err1 != nil {
+			log.Errorln(err1)
+			err = err1
+			return
+		}
+		iter, _ = redis.Int(arr[0], nil)
+		keysList, _ := redis.Strings(arr[1], nil)
+		var hashKeys []interface{}
+		for index, keyItem := range keysList { // 迭代删除 hash key
+			if index%2 == 0 {
+				hashKeys = append(hashKeys, keyItem)
+			}
+			if len(hashKeys) == 20 {
+				var args []interface{}
+				args = append(args, k.keyName)
+				args = append(args, hashKeys...)
+				if _, err := redisClient.Do("HDEL", args...); err != nil {
+					log.Errorln(err)
+				} else {
+					hashKeys = []interface{}{}
+				}
+			}
+		}
+		if iter == 0 {
+			var args []interface{}
+			args = append(args, k.keyName)
+			args = append(args, hashKeys...)
+			if _, err := redisClient.Do("HDEL", args...); err != nil {
+				log.Errorln(err)
+			}
+			break
+		}
+	}
+	return
+}
+
+type ListKey struct {
+	keyName string
+}
+
+func (k ListKey) del() (err error) {
+	log.Infof("Begin to delete [%s] [List] use LTRIM. \n", k.keyName)
+	length, err := redis.Int(redisClient.Do("LLEN", k.keyName))
 	if err != nil {
-		fmt.Println(err)
+		log.Errorln(err)
 		return
 	}
-	*count += len(keys)
+	for length > 0 {
+		if _, err = redisClient.Do("LTRIM", k.keyName, 0, -20); err != nil {
+			log.Errorln(err)
+			return
+		}
+		if length, err = redis.Int(redisClient.Do("LLEN", k.keyName)); err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+	return
+}
+
+type SetKey struct {
+	keyName string
+}
+
+func (k SetKey) del() (err error) {
+	log.Infof("Begin to delete [%s] [Set] use SREM. \n", k.keyName)
+	iter := 0
+	for {
+		arr, err1 := redis.Values(redisClient.Do("SSCAN", k.keyName, iter))
+		if err1 != nil {
+			log.Errorln(err1)
+			err = err1
+			return
+		}
+		iter, _ = redis.Int(arr[0], nil)
+		keysList, _ := redis.Strings(arr[1], nil)
+		var hashKeys []interface{}
+		for _, keyItem := range keysList { // 迭代删除 hash key
+			hashKeys = append(hashKeys, keyItem)
+			if len(hashKeys) == 20 {
+				var args []interface{}
+				args = append(args, k.keyName)
+				args = append(args, hashKeys...)
+				if _, err := redisClient.Do("SREM", args...); err != nil {
+					log.Errorln(err)
+				} else {
+					hashKeys = []interface{}{}
+				}
+			}
+		}
+		if iter == 0 {
+			var args []interface{}
+			args = append(args, k.keyName)
+			args = append(args, hashKeys...)
+			if _, err := redisClient.Do("SREM", args...); err != nil {
+				log.Errorln(err)
+			}
+			break
+		}
+	}
+	return
+}
+
+type ZSetKey struct {
+	keyName string
+}
+
+func (k ZSetKey) del() (err error) {
+	log.Infof("Begin to delete [%s] [ZSet] use ZREMRANGEBYRANK. \n", k.keyName)
+	length, err := redis.Int(redisClient.Do("ZCARD", k.keyName))
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	for length > 0 {
+		if _, err = redisClient.Do("ZREMRANGEBYRANK", k.keyName, 0, 10); err != nil {
+			log.Errorln(err)
+			return
+		}
+		if length, err = redis.Int(redisClient.Do("ZCARD", k.keyName)); err != nil {
+			log.Errorln(err)
+			return
+		}
+	}
+	return
+}
+
+func InitRedisPool(connectionString string, db int, auth string) {
+	redisPool = &redis.Pool{
+		MaxIdle:     256,
+		MaxActive:   1, // 线程池大小
+		IdleTimeout: time.Duration(120),
+		Wait:        true,
+		Dial: func() (redis.Conn, error) {
+			return redis.Dial(
+				"tcp",
+				connectionString,
+				redis.DialReadTimeout(time.Duration(1000)*time.Millisecond),
+				redis.DialWriteTimeout(time.Duration(1000)*time.Millisecond),
+				redis.DialConnectTimeout(time.Duration(1000)*time.Millisecond),
+				redis.DialDatabase(db),
+				redis.DialPassword(auth),
+			)
+		},
+	}
+	redisClient = redisPool.Get()
+}
+
+func getRedisKeyType(key string) (keyType string, err error) {
+	keyType, err = redis.String(redisClient.Do("type", key))
+	return
+}
+
+func RemoveRedisKeys(pattern string) (err error) {
+	iter := 0
+	var redisKeyItem IterDelRedisKeys
+	var keys []string
+	for {
+		arr, err1 := redis.Values(redisClient.Do("SCAN", iter, "MATCH", pattern))
+		if err1 != nil {
+			log.Errorln(err1)
+			err = err1
+			return
+		}
+		iter, _ = redis.Int(arr[0], nil)
+		k, _ := redis.Strings(arr[1], nil)
+		keys = append(keys, k...)
+		for _, keyItem := range k {
+			if keyType, err := getRedisKeyType(keyItem); err != nil {
+				log.Errorln(err)
+				break
+			} else {
+				log.Infoln(fmt.Sprintf("Found Key: %s, type: %s", keyItem, keyType))
+				switch keyType {
+				case "string":
+					redisKeyItem = StringKey{
+						keyName: keyItem,
+					}
+				case "hash":
+					redisKeyItem = HashKey{
+						keyName: keyItem,
+					}
+				case "list":
+					redisKeyItem = ListKey{
+						keyName: keyItem,
+					}
+				case "set":
+					redisKeyItem = SetKey{
+						keyName: keyItem,
+					}
+				case "zset":
+					redisKeyItem = ZSetKey{
+						keyName: keyItem,
+					}
+				default:
+					fmt.Println("不支持的数据类型: ", keyType)
+					break
+				}
+				if err = redisKeyItem.del(); err != nil {
+					log.Infoln(fmt.Sprintf("Delete Key: %s [Failed]", keyItem))
+					break
+				} else {
+					log.Infoln(fmt.Sprintf("Delete Key: %s [Success]", keyItem))
+				}
+			}
+		}
+		if iter == 0 {
+			break
+		}
+	}
 	return
 }

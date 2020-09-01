@@ -1,78 +1,22 @@
+/*
+Copyright © 2020 NAME HERE <EMAIL ADDRESS>
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package main
 
-import (
-	"encoding/csv"
-	"fmt"
-	"github.com/chujieyang/redis-clean/utils"
-	"io"
-	"io/ioutil"
-	"os"
-	"time"
-)
+import "github.com/chujieyang/redis-clean/cmd"
 
 func main() {
-	startTime := time.Now()
-	db8Count := 0
-	db50Count := 0
-	csvDirPath := "/home/fuluops/csv/"
-	rd, err := ioutil.ReadDir(csvDirPath)
-	if err != nil {
-		fmt.Println("read dir fail:", err)
-		return
-	}
-	for _, fi := range rd {
-		csvPath := fmt.Sprintf("%s%s", csvDirPath, fi.Name())
-		fmt.Println(csvPath)
-		file, err := os.Open(csvPath)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-		defer func() {
-			if err := file.Close(); err != nil {
-				fmt.Println(err)
-			}
-		}()
-		reader := csv.NewReader(file)
-		batchCount := 0
-		fileEnd := false
-		var db8Keys []interface{}
-		var db50Keys []interface{}
-		for {
-			record, err := reader.Read()
-			if err == io.EOF {
-				fmt.Println("csv read finish")
-				fileEnd = true
-			} else if err != nil {
-				fmt.Println("Error:", err)
-				return
-			}
-			if fileEnd == false {
-				batchCount += 1
-				db8Keys = append(db8Keys, fmt.Sprintf("CustomerOrderNo_Counter_%s_%s",
-					record[3], record[2]))
-				db50Keys = append(db50Keys, fmt.Sprintf("GenerateOrderId_%s", record[1]),
-					fmt.Sprintf("GenerateSubOrderId_%s", record[0]))
-			}
-			if batchCount == 300 || fileEnd == true {  // 批量删除
-				fmt.Println(db8Keys)
-				fmt.Println(db50Keys)
-				if err := utils.RemoveRedisKeys(8, db8Keys, &db8Count); err != nil {
-					fmt.Println(err)
-				}
-				if err := utils.RemoveRedisKeys(50, db50Keys, &db50Count); err != nil {
-					fmt.Println(err)
-				}
-				time.Sleep(300*time.Microsecond)
-				batchCount = 0
-				db8Keys, db50Keys = []interface{}{}, []interface{}{}
-				if fileEnd == true {
-					break
-				}
-			}
-		}
-
-	}
-
-	fmt.Println(fmt.Sprintf("执行完成，共删除db8数量: %d, db50数量: %d, 耗时：%s", db8Count, db50Count, time.Since(startTime).String()))
+	cmd.Execute()
 }
