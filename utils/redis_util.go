@@ -163,9 +163,9 @@ func (k ZSetKey) del() (err error) {
 
 func InitRedisPool(connectionString string, db int, auth string) {
 	redisPool = &redis.Pool{
-		MaxIdle:     256,
-		MaxActive:   1, // 线程池大小
-		IdleTimeout: time.Duration(120),
+		MaxIdle:     1,
+		MaxActive:   3, // 线程池大小
+		IdleTimeout: time.Duration(10),
 		Wait:        true,
 		Dial: func() (redis.Conn, error) {
 			return redis.Dial(
@@ -192,7 +192,7 @@ func RemoveRedisKeys(pattern string) (err error) {
 	var redisKeyItem IterDelRedisKeys
 	var keys []string
 	for {
-		arr, err1 := redis.Values(redisClient.Do("SCAN", iter, "MATCH", pattern))
+		arr, err1 := redis.Values(redisClient.Do("SCAN", iter, "MATCH", pattern, "count", 200))
 		if err1 != nil {
 			log.Errorln(err1)
 			err = err1
