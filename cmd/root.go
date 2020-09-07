@@ -28,6 +28,7 @@ var ConnectionString string
 var Auth string
 var Pattern string
 var Db int
+var Count int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -37,7 +38,7 @@ var rootCmd = &cobra.Command{
 	Args:  cobra.OnlyValidArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		utils.InitRedisPool(ConnectionString, Db, Auth)
-		if err := utils.RemoveRedisKeys(Pattern); err != nil {
+		if err := utils.RemoveRedisKeys(Pattern, Count); err != nil {
 			fmt.Println(err)
 		}
 	},
@@ -53,18 +54,22 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&ConnectionString, "ConnectionString", "c", "", "redis实例连接地址")
-	rootCmd.MarkFlagRequired("ConnectionString")
-	viper.BindPFlag("ConnectionString", rootCmd.Flags().Lookup("ConnectionString"))
+	rootCmd.Flags().StringVarP(&ConnectionString, "host", "", "", "redis实例连接地址")
+	rootCmd.MarkFlagRequired("host")
+	viper.BindPFlag("host", rootCmd.Flags().Lookup("host"))
 
-	rootCmd.Flags().StringVarP(&Auth, "Auth", "a", "", "用户名和密码")
-	viper.BindPFlag("Auth", rootCmd.Flags().Lookup("Auth"))
+	rootCmd.Flags().StringVarP(&Auth, "auth", "", "", "用户名和密码")
+	viper.BindPFlag("auth", rootCmd.Flags().Lookup("auth"))
 
-	rootCmd.Flags().StringVarP(&Pattern, "Pattern", "p", "", "Key匹配模式")
-	rootCmd.MarkFlagRequired("Pattern")
-	viper.BindPFlag("Pattern", rootCmd.Flags().Lookup("Pattern"))
+	rootCmd.Flags().StringVarP(&Pattern, "pattern", "", "", "Key匹配模式")
+	rootCmd.MarkFlagRequired("pattern")
+	viper.BindPFlag("pattern", rootCmd.Flags().Lookup("pattern"))
 
-	rootCmd.Flags().IntVarP(&Db, "Db", "d", 0, "指定DB")
-	rootCmd.MarkFlagRequired("Db")
-	viper.BindPFlag("Db", rootCmd.Flags().Lookup("Db"))
+	rootCmd.Flags().IntVarP(&Db, "db", "", 0, "指定DB")
+	rootCmd.MarkFlagRequired("db")
+	viper.BindPFlag("db", rootCmd.Flags().Lookup("db"))
+
+	rootCmd.Flags().IntVarP(&Count, "count", "", 100, "scan数量")
+	rootCmd.MarkFlagRequired("count")
+	viper.BindPFlag("count", rootCmd.Flags().Lookup("count"))
 }

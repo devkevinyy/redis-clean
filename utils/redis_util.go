@@ -187,12 +187,12 @@ func getRedisKeyType(key string) (keyType string, err error) {
 	return
 }
 
-func RemoveRedisKeys(pattern string) (err error) {
+func RemoveRedisKeys(pattern string, count int) (err error) {
 	iter := 0
 	var redisKeyItem IterDelRedisKeys
 	var keys []string
 	for {
-		arr, err1 := redis.Values(redisClient.Do("SCAN", iter, "MATCH", pattern, "count", 200))
+		arr, err1 := redis.Values(redisClient.Do("SCAN", iter, "MATCH", pattern, "count", count))
 		if err1 != nil {
 			log.Errorln(err1)
 			err = err1
